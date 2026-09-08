@@ -49,24 +49,61 @@ export type ShapeData = {
 };
 
 export type Attributes = {
+  // position & layout
+  x: string;
+  y: string;
   width: string;
   height: string;
+  angle: string;
+  /** Empty when the four corners differ. */
+  cornerRadius: string;
+  /** [topLeft, topRight, bottomRight, bottomLeft] */
+  cornerRadii: string[];
+  flipX: boolean;
+  flipY: boolean;
+  // appearance
+  opacity: string;
+  blendMode: string;
+  // fill & stroke
+  fill: string;
+  stroke: string;
+  strokeWidth: string;
+  strokeStyle: string;
+  // effects
+  shadowEnabled: boolean;
+  shadowColor: string;
+  shadowBlur: string;
+  shadowOffsetX: string;
+  shadowOffsetY: string;
+  // type
   fontSize: string;
   fontFamily: string;
   fontWeight: string;
-  fill: string;
-  stroke: string;
+  textAlign: string;
+  lineHeight: string;
+  charSpacing: string;
+  underline: boolean;
+  linethrough: boolean;
 };
+
+/** What the canvas currently has selected, as the panels need to know it. */
+export type Selection = { id: string; type: string } | null;
 
 export type ActiveElement = {
   name: string;
   value: string;
+  /** Key into SHAPE_ICONS in components/icons.tsx. */
   icon: string;
+  shortcut?: string;
 } | null;
 
 export interface CustomFabricObject<T extends fabric.Object>
   extends fabric.Object {
   objectId?: string;
+  /** Stored stacking order — see renderCanvas in lib/canvas.ts. */
+  zIndex?: number;
+  /** [topLeft, topRight, bottomRight, bottomLeft] — see lib/rounded-rect.ts. */
+  cornerRadii?: number[];
 }
 
 export type ModifyShape = {
@@ -97,19 +134,27 @@ export type RightSidebarProps = {
   activeObjectRef: React.RefObject<fabric.Object | null>;
   isEditingRef: React.MutableRefObject<boolean>;
   syncShapeInStorage: (obj: any) => void;
+  selection: Selection;
 };
 
 export type NavbarProps = {
+  fileName: string;
+  onRename: (name: string) => void;
   activeElement: ActiveElement;
   imageInputRef: React.MutableRefObject<HTMLInputElement | null>;
   handleImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   handleActiveElement: (element: ActiveElement) => void;
+  undo: () => void;
+  redo: () => void;
+  zoom: number;
+  setZoom: (zoom: number | "in" | "out") => void;
 };
 
 export type ShapesMenuProps = {
   item: {
     name: string;
     icon: string;
+    shortcut?: string;
     value: Array<ActiveElement>;
   };
   activeElement: any;

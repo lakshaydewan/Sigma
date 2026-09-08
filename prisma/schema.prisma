@@ -1,0 +1,24 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Connection URLs live in prisma.config.ts (CLI) and lib/prisma.ts (app).
+datasource db {
+  provider = "postgresql"
+}
+
+/// One saved work. The canvas itself lives in a Liveblocks room named after the
+/// id (see roomIdFor in lib/designs.ts); this row is the metadata around it.
+model Design {
+  id   String @id @default(cuid())
+  name String @default("Untitled")
+
+  /// A JPEG data URL of the canvas, refreshed as the design is edited.
+  thumbnail String?
+
+  createdAt DateTime @default(now())
+  /// Bumped on every edit, so the dashboard can sort by most recently touched.
+  updatedAt DateTime @updatedAt
+
+  @@index([updatedAt])
+}

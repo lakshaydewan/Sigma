@@ -1,45 +1,46 @@
 import React from "react";
 
+import CursorSVG from "@/public/assets/CursorSVG";
+
 type Props = {
   color: string;
   x: number;
   y: number;
+  name?: string;
   message?: string;
 };
 
-export default function Cursor({ color, x, y, message }: Props) {
+/**
+ * A collaborator's pointer: the arrow, a name tag in their presence colour, and
+ * their cursor-chat message underneath when they're typing one.
+ */
+export default function Cursor({ color, x, y, name, message }: Props) {
   return (
     <div
-      className="pointer-events-none absolute top-0 left-0"
-      style={{
-        transform: `translateX(${x}px) translateY(${y}px)`,
-      }}
+      className="pointer-events-none absolute left-0 top-0 z-30 transition-transform duration-100 ease-linear"
+      style={{ transform: `translateX(${x}px) translateY(${y}px)` }}
     >
-      <svg
-        className="relative"
-        width="24"
-        height="36"
-        viewBox="0 0 24 36"
-        fill="none"
-        stroke="white"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M5.65376 12.3673H5.46026L5.31717 12.4976L0.500002 16.8829L0.500002 1.19841L11.7841 12.3673H5.65376Z"
-          fill={color}
-        />
-      </svg>
+      <CursorSVG color={color} />
 
-      {message && (
-        <div
-          className="absolute top-5 left-2 rounded-3xl px-4 py-2"
-          style={{ backgroundColor: color, borderRadius: 20 }}
-        >
-          <p className="whitespace-nowrap text-sm leading-relaxed text-white">
+      <div className="absolute left-4 top-4 flex flex-col items-start gap-1">
+        {name && (
+          <span
+            className="whitespace-nowrap rounded-figma px-1.5 py-0.5 text-ui font-medium leading-4 text-white shadow-figma-pin"
+            style={{ backgroundColor: color }}
+          >
+            {name}
+          </span>
+        )}
+
+        {message && (
+          <span
+            className="max-w-[240px] whitespace-pre-wrap break-words rounded-figma rounded-tl-none px-2 py-1 text-ui leading-4 text-white shadow-figma-pin"
+            style={{ backgroundColor: color }}
+          >
             {message}
-          </p>
-        </div>
-      )}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

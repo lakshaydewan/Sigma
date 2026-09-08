@@ -6,16 +6,22 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@liveblocks/client": "^2.7.2",
     "@liveblocks/react": "^2.7.2",
+    "@liveblocks/react-ui": "^2.24.4",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
-    "fabric": "^6.4.2",
+    "fabric": "^5.3.0",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.445.0",
     "next": "14.2.13",
+    "prisma": "^7.10.0",
     "react": "^18",
     "react-dom": "^18",
     "tailwind-merge": "^2.5.2",
@@ -23,9 +29,11 @@
     "uuid": "^10.0.0"
   },
   "devDependencies": {
+    "@types/fabric": "^5.3.11",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/uuid": "^10.0.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.13",
     "postcss": "^8",

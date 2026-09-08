@@ -1,17 +1,21 @@
+/** Figma's pointer: a filled arrow in the user's colour with a white keyline. */
 function CursorSVG({ color }: { color: string }) {
   return (
     <svg
-      className="relative"
-      width="24"
-      height="36"
-      viewBox="0 0 24 36"
+      width="20"
+      height="24"
+      viewBox="0 0 20 24"
       fill="none"
-      stroke="white"
       xmlns="http://www.w3.org/2000/svg"
+      style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))" }}
+      aria-hidden="true"
     >
       <path
-        d="M5.65376 12.3673H5.46026L5.31717 12.4976L0.500002 16.8829L0.500002 1.19841L11.7841 12.3673H5.65376Z"
+        d="M2.6 1.4 15.9 13.4l-6.4.4-3.3 6.2z"
         fill={color}
+        stroke="#ffffff"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
       />
     </svg>
   );

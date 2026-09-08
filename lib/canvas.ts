@@ -2,6 +2,7 @@ import { fabric } from "fabric";
 import { v4 as uuid4 } from "uuid";
 
 import {
+  Attributes,
   CanvasMouseDown,
   CanvasMouseMove,
   CanvasMouseUp,
@@ -9,10 +10,30 @@ import {
   CanvasObjectScaling,
   CanvasPathCreated,
   CanvasSelectionCreated,
+  CustomFabricObject,
   RenderCanvas,
 } from "@/types/type";
 import { defaultNavElement } from "@/constants";
-import { createSpecificShape } from "./shapes";
+import {
+  applyClickSize,
+  clearDragOrigin,
+  createSpecificShape,
+  dragOriginOf,
+  MIN_DRAG,
+  nextZIndex,
+  setDragOrigin,
+} from "./shapes";
+import { cornerRadiiOf, installRoundedRectRenderer } from "./rounded-rect";
+
+/** An unpanned, unzoomed viewport. */
+export const IDENTITY_VIEWPORT = [1, 0, 0, 1, 0, 0];
+
+export const MIN_ZOOM = 0.1;
+export const MAX_ZOOM = 8;
+export const ZOOM_STEP = 0.002;
+
+/** Figma's canvas ground. Re-applied after every clear(), which resets it. */
+export const CANVAS_BACKGROUND = "#f5f5f5";
 
 // initialize fabric canvas
 export const initializeFabric = ({
@@ -25,11 +46,40 @@ export const initializeFabric = ({
   // get canvas element
   const canvasElement = document.getElementById("canvas");
 
+  installRoundedRectRenderer();
+
+  // Selection chrome, matched to Figma: a 1px blue outline with small square handles.
+  fabric.Object.prototype.set({
+    borderColor: "#0d99ff",
+    borderScaleFactor: 1.5,
+    cornerColor: "#ffffff",
+    cornerStrokeColor: "#0d99ff",
+    cornerStyle: "rect",
+    cornerSize: 8,
+    transparentCorners: false,
+    padding: 0,
+    // Stroke weight is absolute in Figma — it doesn't grow when a shape is scaled.
+    strokeUniform: true,
+  });
+
+  // Figma has no rotation stalk; rotation lives in the design panel instead.
+  fabric.Object.prototype.setControlsVisibility({ mtr: false });
+
   // create fabric canvas
   const canvas = new fabric.Canvas(canvasRef.current, {
     width: canvasElement?.clientWidth,
     height: canvasElement?.clientHeight,
+    backgroundColor: CANVAS_BACKGROUND,
+    selectionColor: "rgba(13, 153, 255, 0.08)",
+    selectionBorderColor: "#0d99ff",
+    selectionLineWidth: 1,
+    // clicking a shape shouldn't reorder it, the way it doesn't in Figma
+    preserveObjectStacking: true,
+    uniformScaling: false,
   });
+
+  canvas.freeDrawingBrush.color = "#1e1e1e";
+  canvas.freeDrawingBrush.width = 4;
 
   // set canvas reference to fabricRef so we can use it later anywhere outside canvas listener
   fabricRef.current = canvas;
@@ -96,6 +146,10 @@ export const handleCanvasMouseDown = ({
 
     // if shapeRef is not null, add it to canvas
     if (shapeRef.current) {
+      // The drag is measured from here, so a drag in any direction works and a
+      // click — a drag of no length — can be told apart on mouse up.
+      setDragOrigin(shapeRef.current, { x: pointer.x, y: pointer.y });
+
       // add: http://fabricjs.com/docs/fabric.Canvas.html#add
       canvas.add(shapeRef.current);
     }
@@ -117,44 +171,35 @@ export const handleCanvaseMouseMove = ({
 
   canvas.isDrawingMode = false;
 
+  const shape = shapeRef.current;
+  if (!shape) return;
+
   // get pointer coordinates
   const pointer = canvas.getPointer(options.e);
 
-  // depending on the selected shape, set the dimensions of the shape stored in shapeRef in previous step of handelCanvasMouseDown
-  // calculate shape dimensions based on pointer coordinates
+  // The shape being drawn is the box between where the drag started and the
+  // pointer, so dragging up or left works the same as dragging down or right.
+  const origin = dragOriginOf(shape);
+  const left = Math.min(origin.x, pointer.x);
+  const top = Math.min(origin.y, pointer.y);
+  const width = Math.abs(pointer.x - origin.x);
+  const height = Math.abs(pointer.y - origin.y);
+
   switch (selectedShapeRef?.current) {
     case "rectangle":
-      shapeRef.current?.set({
-        width: pointer.x - (shapeRef.current?.left || 0),
-        height: pointer.y - (shapeRef.current?.top || 0),
-      });
+    case "triangle":
+    case "image":
+      shape.set({ left, top, width, height });
       break;
 
     case "circle":
-      shapeRef.current.set({
-        radius: Math.abs(pointer.x - (shapeRef.current?.left || 0)) / 2,
-      });
-      break;
-
-    case "triangle":
-      shapeRef.current?.set({
-        width: pointer.x - (shapeRef.current?.left || 0),
-        height: pointer.y - (shapeRef.current?.top || 0),
-      });
+      // a fabric circle only has one radius, so the longer axis of the drag wins
+      shape.set({ left, top, radius: Math.max(width, height) / 2 } as Partial<fabric.Circle>);
       break;
 
     case "line":
-      shapeRef.current?.set({
-        x2: pointer.x,
-        y2: pointer.y,
-      });
+      shape.set({ x2: pointer.x, y2: pointer.y } as Partial<fabric.Line>);
       break;
-
-    case "image":
-      shapeRef.current?.set({
-        width: pointer.x - (shapeRef.current?.left || 0),
-        height: pointer.y - (shapeRef.current?.top || 0),
-      });
 
     default:
       break;
@@ -165,8 +210,8 @@ export const handleCanvaseMouseMove = ({
   canvas.renderAll();
 
   // sync shape in storage
-  if (shapeRef.current?.objectId) {
-    syncShapeInStorage(shapeRef.current);
+  if ((shape as CustomFabricObject<fabric.Object>).objectId) {
+    syncShapeInStorage(shape);
   }
 };
 
@@ -182,6 +227,15 @@ export const handleCanvasMouseUp = ({
 }: CanvasMouseUp) => {
   isDrawing.current = false;
   if (selectedShapeRef.current === "freeform") return;
+
+  if (shapeRef.current) {
+    // A click never resized the shape, so give it its default size rather than
+    // storing an empty one.
+    applyClickSize(shapeRef.current, MIN_DRAG / canvas.getZoom());
+    clearDragOrigin(shapeRef.current);
+    shapeRef.current.setCoords();
+    canvas.requestRenderAll();
+  }
 
   // sync shape in storage as drawing is stopped
   syncShapeInStorage(shapeRef.current);
@@ -207,6 +261,19 @@ export const handleCanvasObjectModified = ({
   const target = options.target;
   if (!target) return;
 
+  // Dragging a rect's handles changes its scale, which would stretch the corner
+  // radii with it. Figma keeps radii absolute, so fold the scale back into the
+  // dimensions and leave the shape at scale 1.
+  if (target.type === "rect" && (target.scaleX !== 1 || target.scaleY !== 1)) {
+    target.set({
+      width: (target.width ?? 0) * (target.scaleX ?? 1),
+      height: (target.height ?? 0) * (target.scaleY ?? 1),
+      scaleX: 1,
+      scaleY: 1,
+    });
+    target.setCoords();
+  }
+
   if (target?.type == "activeSelection") {
     // fix this
   } else {
@@ -223,51 +290,116 @@ export const handlePathCreated = ({
   const path = options.path;
   if (!path) return;
 
-  // set unique id to path object
+  // set unique id and stacking order on the path object
   path.set({
     objectId: uuid4(),
+    zIndex: nextZIndex(),
   });
 
   // sync shape in storage
   syncShapeInStorage(path);
 };
 
-// check how object is moving on canvas and restrict it to canvas boundaries
+// Objects are free to move anywhere on the canvas — clamping them to the viewport
+// would fight panning, since the visible region is no longer the whole canvas.
 export const handleCanvasObjectMoving = ({
   options,
+  setElementAttributes,
 }: {
   options: fabric.IEvent;
+  setElementAttributes?: React.Dispatch<React.SetStateAction<Attributes>>;
 }) => {
-  // get target object which is moving
   const target = options.target as fabric.Object;
+  if (!target) return;
 
-  // target.canvas is the canvas on which the object is moving
-  const canvas = target.canvas as fabric.Canvas;
-
-  // set coordinates of target object
   target.setCoords();
 
-  // restrict object to canvas boundaries (horizontal)
-  if (target && target.left) {
-    target.left = Math.max(
-      0,
-      Math.min(
-        target.left,
-        (canvas.width || 0) - (target.getScaledWidth() || target.width || 0)
-      )
-    );
-  }
+  // Figma updates X/Y live as you drag. Returning the previous object when the
+  // rounded values haven't changed keeps this from re-rendering on every mousemove.
+  setElementAttributes?.((prev) => {
+    const x = (target.left ?? 0).toFixed(0);
+    const y = (target.top ?? 0).toFixed(0);
 
-  // restrict object to canvas boundaries (vertical)
-  if (target && target.top) {
-    target.top = Math.max(
-      0,
-      Math.min(
-        target.top,
-        (canvas.height || 0) - (target.getScaledHeight() || target.height || 0)
-      )
-    );
-  }
+    return prev.x === x && prev.y === y ? prev : { ...prev, x, y };
+  });
+};
+
+/** A blank design panel: no selection, nothing to show. */
+export const DEFAULT_ATTRIBUTES: Attributes = {
+  x: "",
+  y: "",
+  width: "",
+  height: "",
+  angle: "",
+  cornerRadius: "",
+  cornerRadii: ["0", "0", "0", "0"],
+  flipX: false,
+  flipY: false,
+  opacity: "",
+  blendMode: "source-over",
+  fill: "",
+  stroke: "",
+  strokeWidth: "",
+  strokeStyle: "solid",
+  shadowEnabled: false,
+  shadowColor: "#00000040",
+  shadowBlur: "4",
+  shadowOffsetX: "0",
+  shadowOffsetY: "4",
+  fontSize: "",
+  fontFamily: "",
+  fontWeight: "",
+  textAlign: "left",
+  lineHeight: "",
+  charSpacing: "",
+  underline: false,
+  linethrough: false,
+};
+
+/** Reads every property the design panel edits off a fabric object. */
+export const readAttributes = (element: fabric.Object): Attributes => {
+  const scaledWidth = element.width! * (element.scaleX ?? 1);
+  const scaledHeight = element.height! * (element.scaleY ?? 1);
+  const shadow = element.shadow as fabric.Shadow | null;
+  const dash = element.strokeDashArray;
+  const anyElement = element as any;
+  const radii = cornerRadiiOf(anyElement);
+  const cornersMatch = radii.every((r) => r === radii[0]);
+
+  return {
+    x: (element.left ?? 0).toFixed(0),
+    y: (element.top ?? 0).toFixed(0),
+    width: scaledWidth.toFixed(0),
+    height: scaledHeight.toFixed(0),
+    angle: (element.angle ?? 0).toFixed(0),
+    cornerRadius: cornersMatch ? String(radii[0]) : "",
+    cornerRadii: radii.map(String),
+    flipX: Boolean(element.flipX),
+    flipY: Boolean(element.flipY),
+
+    opacity: (element.opacity ?? 1).toString(),
+    blendMode: element.globalCompositeOperation || "source-over",
+
+    fill: element.fill?.toString() || "",
+    stroke: element.stroke || "",
+    strokeWidth: (element.strokeWidth ?? 0).toString(),
+    strokeStyle: !dash || dash.length === 0 ? "solid" : dash[0] <= 2 ? "dot" : "dash",
+
+    shadowEnabled: Boolean(shadow),
+    shadowColor: shadow?.color || "#00000040",
+    shadowBlur: (shadow?.blur ?? 4).toString(),
+    shadowOffsetX: (shadow?.offsetX ?? 0).toString(),
+    shadowOffsetY: (shadow?.offsetY ?? 4).toString(),
+
+    fontSize: (anyElement.fontSize ?? "").toString(),
+    fontFamily: anyElement.fontFamily ?? "",
+    fontWeight: (anyElement.fontWeight ?? "").toString(),
+    textAlign: anyElement.textAlign ?? "left",
+    lineHeight: (anyElement.lineHeight ?? 1.16).toString(),
+    charSpacing: (anyElement.charSpacing ?? 0).toString(),
+    underline: Boolean(anyElement.underline),
+    linethrough: Boolean(anyElement.linethrough),
+  };
 };
 
 // set element attributes when element is selected
@@ -287,27 +419,7 @@ export const handleCanvasSelectionCreated = ({
 
   // if only one element is selected, set element attributes
   if (selectedElement && options.selected.length === 1) {
-    // calculate scaled dimensions of the object
-    const scaledWidth = selectedElement?.scaleX
-      ? selectedElement?.width! * selectedElement?.scaleX
-      : selectedElement?.width;
-
-    const scaledHeight = selectedElement?.scaleY
-      ? selectedElement?.height! * selectedElement?.scaleY
-      : selectedElement?.height;
-
-    setElementAttributes({
-      width: scaledWidth?.toFixed(0).toString() || "",
-      height: scaledHeight?.toFixed(0).toString() || "",
-      fill: selectedElement?.fill?.toString() || "",
-      stroke: selectedElement?.stroke || "",
-      // @ts-ignore
-      fontSize: selectedElement?.fontSize || "",
-      // @ts-ignore
-      fontFamily: selectedElement?.fontFamily || "",
-      // @ts-ignore
-      fontWeight: selectedElement?.fontWeight || "",
-    });
+    setElementAttributes(readAttributes(selectedElement));
   }
 };
 
@@ -334,17 +446,40 @@ export const handleCanvasObjectScaling = ({
   }));
 };
 
+/** Re-reads everything once a drag, scale or rotate finishes. */
+export const handleCanvasObjectModifiedAttributes = ({
+  options,
+  isEditingRef,
+  setElementAttributes,
+}: {
+  options: fabric.IEvent;
+  isEditingRef: React.MutableRefObject<boolean>;
+  setElementAttributes: React.Dispatch<React.SetStateAction<Attributes>>;
+}) => {
+  const target = options.target;
+  if (!target || target.type === "activeSelection" || isEditingRef.current) return;
+
+  setElementAttributes(readAttributes(target));
+};
+
 // render canvas objects coming from storage on canvas
 export const renderCanvas = ({
   fabricRef,
   canvasObjects,
   activeObjectRef,
 }: RenderCanvas) => {
-  // clear canvas
+  // clear canvas — clear() also drops the background colour, so put it back
   fabricRef.current?.clear();
+  if (fabricRef.current) fabricRef.current.backgroundColor = CANVAS_BACKGROUND;
+
+  // Storage is a map, so draw order comes from an explicit zIndex rather than
+  // insertion order — otherwise "bring to front" is lost on the next sync.
+  const ordered = Array.from(canvasObjects as Map<string, any>).sort(
+    (a, b) => (a[1]?.zIndex ?? 0) - (b[1]?.zIndex ?? 0)
+  );
 
   // render all objects on canvas
-  Array.from(canvasObjects, ([objectId, objectData]) => {
+  ordered.map(([objectId, objectData]) => {
     /**
      * enlivenObjects() is used to render objects on canvas.
      * It takes two arguments:
@@ -394,7 +529,7 @@ export const handleResize = ({ canvas }: { canvas: fabric.Canvas | null }) => {
   });
 };
 
-// zoom canvas on mouse scroll
+// Pan on wheel, zoom on modifier + wheel — the convention in Figma and Excalidraw.
 export const handleCanvasZoom = ({
   options,
   canvas,
@@ -402,21 +537,30 @@ export const handleCanvasZoom = ({
   options: fabric.IEvent & { e: WheelEvent };
   canvas: fabric.Canvas;
 }) => {
-  const delta = options.e?.deltaY;
+  const event = options.e;
+
+  if (!event.ctrlKey && !event.metaKey) {
+    // Trackpads report deltaX; a plain wheel only reports deltaY, so it scrolls vertically.
+    canvas.relativePan(new fabric.Point(-event.deltaX, -event.deltaY));
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+
   let zoom = canvas.getZoom();
+  zoom = Math.min(Math.max(MIN_ZOOM, zoom - event.deltaY * ZOOM_STEP), MAX_ZOOM);
 
-  // allow zooming to min 20% and max 100%
-  const minZoom = 0.2;
-  const maxZoom = 1;
-  const zoomStep = 0.001;
+  // zoomToPoint keeps the point under the cursor fixed while scaling
+  canvas.zoomToPoint({ x: event.offsetX, y: event.offsetY }, zoom);
 
-  // calculate zoom based on mouse scroll wheel with min and max zoom
-  zoom = Math.min(Math.max(minZoom, zoom + delta * zoomStep), maxZoom);
-
-  // set zoom to canvas
-  // zoomToPoint: http://fabricjs.com/docs/fabric.Canvas.html#zoomToPoint
-  canvas.zoomToPoint({ x: options.e.offsetX, y: options.e.offsetY }, zoom);
-
-  options.e.preventDefault();
-  options.e.stopPropagation();
+  event.preventDefault();
+  event.stopPropagation();
 };
+
+/** Screen (canvas-element) coordinates -> canvas-space coordinates. */
+export const screenToCanvas = (x: number, y: number, viewport: number[]) =>
+  fabric.util.transformPoint(new fabric.Point(x, y), fabric.util.invertTransform(viewport));
+
+/** Canvas-space coordinates -> screen (canvas-element) coordinates. */
+export const canvasToScreen = (x: number, y: number, viewport: number[]) =>
+  fabric.util.transformPoint(new fabric.Point(x, y), viewport);

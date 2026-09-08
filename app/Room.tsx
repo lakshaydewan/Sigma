@@ -6,14 +6,37 @@ import {
   RoomProvider,
   ClientSideSuspense,
 } from "@liveblocks/react/suspense";
+import { LiveMap } from "@liveblocks/client";
 
-export function Room({ children }: { children: ReactNode }) {
+import { COLORS } from "@/constants";
+import { generateRandomName } from "@/lib/utils";
+import EditorSkeleton from "@/components/skeletons/EditorSkeleton";
+
+export function Room({
+  children,
+  roomId,
+  name,
+}: {
+  children: ReactNode;
+  roomId: string;
+  name: string;
+}) {
   return (
     <LiveblocksProvider publicApiKey={process.env.NEXT_PUBLIC_LIVEBLOCKS_PUBLIC_KEY!}>
-      <RoomProvider id="my-room">
-        <ClientSideSuspense fallback={<div className="flex justify-center items-center w-[100vw] h-[100vh]">Loading…</div>}>
-          {children}
-        </ClientSideSuspense>
+      <RoomProvider
+        id={roomId}
+        initialPresence={() => ({
+          cursor: null,
+          cursorColor: COLORS[Math.floor(Math.random() * COLORS.length)],
+          editingText: false,
+          message: "",
+          username: generateRandomName(),
+        })}
+        initialStorage={() => ({
+          canvasObjects: new LiveMap(),
+        })}
+      >
+        <ClientSideSuspense fallback={<EditorSkeleton name={name} />}>{children}</ClientSideSuspense>
       </RoomProvider>
     </LiveblocksProvider>
   );

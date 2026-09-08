@@ -2,6 +2,7 @@ import { fabric } from "fabric";
 import { v4 as uuidv4 } from "uuid";
 
 import { CustomFabricObject } from "@/types/type";
+import { nextZIndex } from "./shapes";
 
 export const handleCopy = (canvas: fabric.Canvas) => {
   const activeObjects = canvas.getActiveObjects();
@@ -41,7 +42,7 @@ export const handlePaste = (
                 left: enlivenedObj.left || 0 + 20,
                 top: enlivenedObj.top || 0 + 20,
                 objectId: uuidv4(),
-                fill: "#aabbcc",
+                zIndex: nextZIndex(),
               } as CustomFabricObject<any>);
 
               canvas.add(enlivenedObj);
@@ -93,6 +94,10 @@ export const handleKeyDown = ({
   syncShapeInStorage: (shape: fabric.Object) => void;
   deleteShapeFromStorage: (id: string) => void;
 }) => {
+  // ignore shortcuts while the user is typing in a text input/textarea (e.g. sidebar fields, cursor chat)
+  const target = e.target as HTMLElement;
+  if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
+
   // Check if the key pressed is ctrl/cmd + c (copy)
   if ((e?.ctrlKey || e?.metaKey) && e.keyCode === 67) {
     handleCopy(canvas);
@@ -104,9 +109,9 @@ export const handleKeyDown = ({
   }
 
   // Check if the key pressed is delete/backspace (delete)
-  // if (e.keyCode === 8 || e.keyCode === 46) {
-  //   handleDelete(canvas, deleteShapeFromStorage);
-  // }
+  if (e.keyCode === 8 || e.keyCode === 46) {
+    handleDelete(canvas, deleteShapeFromStorage);
+  }
 
   // check if the key pressed is ctrl/cmd + x (cut)
   if ((e?.ctrlKey || e?.metaKey) && e.keyCode === 88) {
