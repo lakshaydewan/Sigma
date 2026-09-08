@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Figma",
+  title: "Canvo",
   description: "Design together in the browser — a collaborative, multiplayer canvas.",
 };
 

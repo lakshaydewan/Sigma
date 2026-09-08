@@ -171,7 +171,7 @@ export default function Editor({ designId, initialName }: Props) {
   // Named here rather than in generateMetadata: that would hold the first byte
   // back on a database round trip, and this keeps up with a rename for free.
   useEffect(() => {
-    document.title = `${name} – Figma`;
+    document.title = `${name} – Canvo`;
   }, [name]);
 
   /**
