@@ -1,10 +1,13 @@
+import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
 import { defineConfig, env } from "prisma/config";
 
-// The CLI doesn't read .env for us any more.
-process.loadEnvFile(path.join(process.cwd(), ".env"));
+// The CLI doesn't read .env for us any more. It's absent on a CI build — the
+// vars come from the platform's own environment there — so this stays optional.
+const envFile = path.join(process.cwd(), ".env");
+if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
 
 /**
  * Prisma 7 keeps connection URLs out of the schema. The CLI reads this file;
